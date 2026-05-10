@@ -3,7 +3,12 @@ import { Session, User } from '@supabase/supabase-js';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import supabase from '@/lib/supabase';
-import { Profile } from '@/lib/types';
+import { Profile, UserRole } from '@/lib/types';
+
+const resolveRole = (candidate: unknown): UserRole =>
+  candidate === 'admin' || candidate === 'logistik' || candidate === 'pengawas'
+    ? candidate
+    : 'pengawas';
 
 type AuthState = {
   user: User | null;
@@ -14,10 +19,22 @@ type AuthState = {
     error: string | null;
     role: Profile['role'] | null;
   }>;
+  signUp: (payload: {
+    email: string;
+    password: string;
+    nama_lengkap: string;
+    role: UserRole;
+    no_hp?: string;
+  }) => Promise<{
+    error: string | null;
+    role: Profile['role'] | null;
+    needsEmailVerification: boolean;
+  }>;
   signOut: () => Promise<void>;
   loadSession: () => Promise<void>;
   updateProfile: (payload: Partial<Profile>) => Promise<{ error: string | null }>;
   fetchProfile: (userId: string) => Promise<Profile | null>;
+  ensureProfile: (user: User) => Promise<Profile | null>;
   setSessionState: (session: Session | null) => Promise<void>;
 };
 
@@ -38,17 +55,57 @@ export const useAuthStore = create<AuthState>()(
         if (error) return null;
         return data as Profile;
       },
+      ensureProfile: async (user) => {
+        const existingProfile = await get().fetchProfile(user.id);
+        if (existingProfile) return existingProfile;
+
+        const metadata = user.user_metadata ?? {};
+        const metadataName =
+          metadata.nama_lengkap ?? metadata.full_name ?? metadata.display_name ?? null;
+        const metadataPhone = metadata.no_hp ?? metadata.phone ?? null;
+        const fallbackRole: UserRole = resolveRole(metadata.role);
+
+        const payload = {
+          id: user.id,
+          email: user.email ?? '',
+          nama_lengkap: metadataName ?? user.email?.split('@')[0] ?? 'User Baru',
+          no_hp: metadataPhone,
+          role: fallbackRole,
+        };
+
+        const { data, error } = await supabase.from('profiles').upsert(payload).select('*').single();
+        if (error) return null;
+        return data as Profile;
+      },
       setSessionState: async (session) => {
         if (!session) {
           set({ session: null, user: null, profile: null });
           return;
         }
 
-        const profile = await get().fetchProfile(session.user.id);
+        const profile = await get().ensureProfile(session.user);
+        const metadata = session.user.user_metadata ?? {};
+        const roleFromMetadata = resolveRole(metadata.role);
+        const fallbackProfile: Profile = {
+          id: session.user.id,
+          email: session.user.email ?? '',
+          nama_lengkap:
+            metadata.nama_lengkap ??
+            metadata.full_name ??
+            metadata.display_name ??
+            session.user.email?.split('@')[0] ??
+            'User Baru',
+          no_hp: (metadata.no_hp ?? metadata.phone ?? null) as string | null,
+          role: roleFromMetadata,
+          proyek_id: null,
+          avatar_url: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
         set({
           session,
           user: session.user,
-          profile,
+          profile: profile ?? fallbackProfile,
         });
       },
       signIn: async (email, password) => {
@@ -63,17 +120,93 @@ export const useAuthStore = create<AuthState>()(
           };
         }
 
-        const profile = await get().fetchProfile(data.user.id);
+        const profile = await get().ensureProfile(data.user);
+        const metadata = data.user.user_metadata ?? {};
+        const roleFromMetadata = resolveRole(metadata.role);
+        const fallbackProfile: Profile = {
+          id: data.user.id,
+          email: data.user.email ?? '',
+          nama_lengkap:
+            metadata.nama_lengkap ??
+            metadata.full_name ??
+            metadata.display_name ??
+            data.user.email?.split('@')[0] ??
+            'User Baru',
+          no_hp: (metadata.no_hp ?? metadata.phone ?? null) as string | null,
+          role: roleFromMetadata,
+          proyek_id: null,
+          avatar_url: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
         set({
           session: data.session,
           user: data.user,
-          profile,
+          profile: profile ?? fallbackProfile,
           isLoading: false,
         });
 
         return {
           error: null,
-          role: profile?.role ?? null,
+          role: profile?.role ?? roleFromMetadata,
+        };
+      },
+      signUp: async ({ email, password, nama_lengkap, role, no_hp }) => {
+        set({ isLoading: true });
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              nama_lengkap,
+              full_name: nama_lengkap,
+              display_name: nama_lengkap,
+              role,
+              no_hp: no_hp?.trim() ? no_hp : null,
+              phone: no_hp?.trim() ? no_hp : null,
+            },
+          },
+        });
+
+        if (error || !data.user) {
+          set({ isLoading: false });
+          return {
+            error: error?.message ?? 'Gagal registrasi. Silakan coba lagi.',
+            role: null,
+            needsEmailVerification: false,
+          };
+        }
+
+        if (!data.session) {
+          set({ isLoading: false });
+          return {
+            error: null,
+            role,
+            needsEmailVerification: true,
+          };
+        }
+
+        const ensuredProfile = await get().ensureProfile(data.user);
+        if (!ensuredProfile) {
+          set({ isLoading: false });
+          return {
+            error: 'Akun berhasil dibuat, tetapi profile gagal disiapkan. Coba login ulang.',
+            role: null,
+            needsEmailVerification: false,
+          };
+        }
+
+        set({
+          session: data.session,
+          user: data.user,
+          profile: ensuredProfile,
+          isLoading: false,
+        });
+
+        return {
+          error: null,
+          role: ensuredProfile.role,
+          needsEmailVerification: false,
         };
       },
       signOut: async () => {

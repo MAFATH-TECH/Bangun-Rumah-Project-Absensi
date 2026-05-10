@@ -59,17 +59,17 @@ export default function LoginScreen() {
   }
 
   return (
-    <View className="flex-1 justify-center bg-slate-950 px-6">
+    <View className="flex-1 justify-center bg-black px-6">
       <View className="mb-8 items-center">
-        <View className="mb-4 h-20 w-20 items-center justify-center rounded-2xl bg-blue-900">
-          <Text className="text-3xl font-bold text-blue-100">A</Text>
+        <View className="mb-4 h-20 w-20 items-center justify-center rounded-2xl bg-yellow-400">
+          <Text className="text-3xl font-bold text-black">A</Text>
         </View>
         <Text className="text-2xl font-bold text-white">Absensi Pengawas</Text>
-        <Text className="mt-1 text-sm text-slate-300">Silakan login untuk melanjutkan</Text>
+        <Text className="mt-1 text-sm text-yellow-200">Silakan login untuk melanjutkan</Text>
       </View>
 
-      <View className="rounded-2xl bg-slate-900 p-5">
-        <Text className="mb-2 text-sm font-medium text-slate-200">Email</Text>
+      <View className="rounded-2xl border border-yellow-400 bg-white p-5">
+        <Text className="mb-2 text-sm font-medium text-black">Email</Text>
         <Controller
           control={control}
           name="email"
@@ -80,8 +80,8 @@ export default function LoginScreen() {
               value={value}
               onChangeText={onChange}
               placeholder="nama@email.com"
-              placeholderTextColor="#94a3b8"
-              className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white"
+              placeholderTextColor="#6b7280"
+              className="rounded-xl border border-yellow-500 bg-white px-4 py-3 text-black"
             />
           )}
         />
@@ -89,7 +89,7 @@ export default function LoginScreen() {
           <Text className="mt-1 text-xs text-red-400">{errors.email.message}</Text>
         ) : null}
 
-        <Text className="mb-2 mt-4 text-sm font-medium text-slate-200">Password</Text>
+        <Text className="mb-2 mt-4 text-sm font-medium text-black">Password</Text>
         <Controller
           control={control}
           name="password"
@@ -99,8 +99,8 @@ export default function LoginScreen() {
               value={value}
               onChangeText={onChange}
               placeholder="Masukkan password"
-              placeholderTextColor="#94a3b8"
-              className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-white"
+              placeholderTextColor="#6b7280"
+              className="rounded-xl border border-yellow-500 bg-white px-4 py-3 text-black"
             />
           )}
         />
@@ -115,13 +115,22 @@ export default function LoginScreen() {
         <Pressable
           disabled={isLoading}
           onPress={handleSubmit(onSubmit)}
-          className="mt-6 items-center rounded-xl bg-blue-800 px-4 py-3 disabled:opacity-70"
+          className="mt-6 items-center rounded-xl bg-yellow-400 px-4 py-3 disabled:opacity-70"
         >
           {isLoading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color="#000" />
           ) : (
-            <Text className="font-semibold text-white">Masuk</Text>
+            <Text className="font-semibold text-black">Masuk</Text>
           )}
+        </Pressable>
+
+        <Pressable
+          onPress={() => router.push('/(auth)/register' as never)}
+          className="mt-4 items-center py-2"
+        >
+          <Text className="text-sm text-black">
+            Belum punya akun? <Text className="font-semibold text-yellow-600">Daftar sekarang</Text>
+          </Text>
         </Pressable>
       </View>
     </View>
