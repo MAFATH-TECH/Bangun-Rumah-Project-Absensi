@@ -1,7 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Redirect, router } from 'expo-router';
 import { Controller, useForm } from 'react-hook-form';
-import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { z } from 'zod';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -37,13 +36,13 @@ const ROLE_OPTIONS: Array<{ label: string; value: Profile['role'] }> = [
 
 export default function RegisterScreen() {
   const { signUp, isLoading, session, profile } = useAuthStore();
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const {
     control,
     handleSubmit,
     watch,
     formState: { errors },
     setError,
+    clearErrors,
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -57,9 +56,11 @@ export default function RegisterScreen() {
   });
 
   const selectedRole = watch('role');
+  const rootError = errors.root?.message;
 
   const onSubmit = async (values: RegisterFormValues) => {
-    setSuccessMessage(null);
+    clearErrors('root');
+
     const result = await signUp({
       email: values.email,
       password: values.password,
@@ -70,13 +71,6 @@ export default function RegisterScreen() {
 
     if (result.error) {
       setError('root', { message: result.error });
-      return;
-    }
-
-    if (result.needsEmailVerification) {
-      setSuccessMessage(
-        'Registrasi berhasil. Akun sudah masuk ke Auth, silakan cek email untuk verifikasi lalu login.',
-      );
       return;
     }
 
@@ -93,10 +87,16 @@ export default function RegisterScreen() {
     <View className="flex-1 justify-center bg-black px-6">
       <View className="mb-6 items-center">
         <Text className="text-2xl font-bold text-white">Buat Akun Baru</Text>
-        <Text className="mt-1 text-sm text-yellow-200">Pilih role lalu lanjutkan registrasi</Text>
+        <Text className="mt-1 text-sm text-yellow-200">Daftar lalu langsung masuk ke aplikasi</Text>
       </View>
 
       <View className="rounded-2xl border border-yellow-400 bg-white p-5">
+        {rootError ? (
+          <View className="mb-3 rounded-lg bg-red-100 p-3">
+            <Text className="text-[13px] leading-[18px] text-red-800">{rootError}</Text>
+          </View>
+        ) : null}
+
         <Text className="mb-2 text-sm font-medium text-black">Nama Lengkap</Text>
         <Controller
           control={control}
@@ -214,11 +214,6 @@ export default function RegisterScreen() {
         {errors.confirmPassword?.message ? (
           <Text className="mt-1 text-xs text-red-400">{errors.confirmPassword.message}</Text>
         ) : null}
-
-        {errors.root?.message ? (
-          <Text className="mt-3 text-sm text-red-400">{errors.root.message}</Text>
-        ) : null}
-        {successMessage ? <Text className="mt-3 text-sm text-green-600">{successMessage}</Text> : null}
 
         <Pressable
           disabled={isLoading}
