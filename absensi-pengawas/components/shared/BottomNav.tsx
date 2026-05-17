@@ -15,7 +15,7 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   pengawas: [
     { label: 'Beranda', href: '/(pengawas)/beranda' },
     { label: 'Absensi', href: '/(pengawas)/absensi' },
-    { label: 'Laporan', href: '/(pengawas)/laporan' },
+    { label: 'Laporan', href: '/(pengawas)/lengkapi-laporan' },
     { label: 'Riwayat', href: '/(pengawas)/riwayat' },
   ],
   logistik: [
@@ -45,7 +45,8 @@ export function BottomNav({ role }: BottomNavProps) {
   return (
     <View className="flex-row justify-between border-t border-slate-200 bg-white px-4 py-3">
       {items.map((item) => {
-        const isActive = pathname === item.href;
+        const isActive =
+          pathname === item.href || pathname.startsWith(`${item.href}/`);
         return (
           <Pressable
             key={item.href}

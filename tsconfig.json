@@ -1,0 +1,15 @@
+{
+  "extends": "./absensi-pengawas/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./absensi-pengawas/*"]
+    }
+  },
+  "include": [
+    "absensi-pengawas/**/*.ts",
+    "absensi-pengawas/**/*.tsx",
+    "absensi-pengawas/expo-env.d.ts",
+    "absensi-pengawas/nativewind-env.d.ts",
+    "absensi-pengawas/.expo/types/**/*.ts"
+  ]
+}

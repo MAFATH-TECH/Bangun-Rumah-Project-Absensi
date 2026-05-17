@@ -4,11 +4,23 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import supabase from '@/lib/supabase';
 import { Profile, UserRole } from '@/lib/types';
+import type { Tables } from '@/types/supabase';
 
 const resolveRole = (candidate: unknown): UserRole =>
   candidate === 'admin' || candidate === 'logistik' || candidate === 'pengawas'
     ? candidate
     : 'pengawas';
+
+const mapDbProfile = (row: Tables<'profiles'>, email = ''): Profile => ({
+  id: row.id,
+  email,
+  nama_lengkap: row.full_name,
+  role: resolveRole(row.role),
+  proyek_id: null,
+  avatar_url: null,
+  created_at: row.created_at ?? new Date().toISOString(),
+  updated_at: row.updated_at ?? new Date().toISOString(),
+});
 
 type AuthState = {
   user: User | null;
@@ -52,8 +64,8 @@ export const useAuthStore = create<AuthState>()(
           .eq('id', userId)
           .single();
 
-        if (error) return null;
-        return data as Profile;
+        if (error || !data) return null;
+        return mapDbProfile(data, get().user?.email ?? '');
       },
       ensureProfile: async (user) => {
         const existingProfile = await get().fetchProfile(user.id);
@@ -67,15 +79,13 @@ export const useAuthStore = create<AuthState>()(
 
         const payload = {
           id: user.id,
-          email: user.email ?? '',
-          nama_lengkap: metadataName ?? user.email?.split('@')[0] ?? 'User Baru',
-          no_hp: metadataPhone,
+          full_name: metadataName ?? user.email?.split('@')[0] ?? 'User Baru',
           role: fallbackRole,
         };
 
         const { data, error } = await supabase.from('profiles').upsert(payload).select('*').single();
-        if (error) return null;
-        return data as Profile;
+        if (error || !data) return null;
+        return mapDbProfile(data, user.email ?? '');
       },
       setSessionState: async (session) => {
         if (!session) {
@@ -226,9 +236,13 @@ export const useAuthStore = create<AuthState>()(
           return { error: 'User belum login.' };
         }
 
+        const dbPayload: Partial<Tables<'profiles'>> = {};
+        if (payload.nama_lengkap) dbPayload.full_name = payload.nama_lengkap;
+        if (payload.role) dbPayload.role = payload.role;
+
         const { data, error } = await supabase
           .from('profiles')
-          .update(payload)
+          .update(dbPayload)
           .eq('id', currentUser.id)
           .select('*')
           .single();
@@ -237,7 +251,7 @@ export const useAuthStore = create<AuthState>()(
           return { error: error.message };
         }
 
-        set({ profile: data as Profile });
+        set({ profile: mapDbProfile(data, currentUser.email ?? '') });
         return { error: null };
       },
     }),
