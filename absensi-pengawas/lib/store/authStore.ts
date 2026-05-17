@@ -1,7 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session, User } from '@supabase/supabase-js';
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import {
+  isAlreadyRegisteredError,
+  isInvalidRefreshTokenError,
+  mapAuthErrorMessage,
+  mapSignUpError,
+  UNCONFIRMED_EMAIL_HELP,
+} from '@/lib/auth/errors';
+import { clearLocalAuthSession } from '@/lib/auth/session';
 import supabase from '@/lib/supabase';
 import { Profile, UserRole } from '@/lib/types';
 
@@ -9,6 +16,48 @@ const resolveRole = (candidate: unknown): UserRole =>
   candidate === 'admin' || candidate === 'logistik' || candidate === 'pengawas'
     ? candidate
     : 'pengawas';
+
+const isUserEmailConfirmed = (user: User) => Boolean(user.email_confirmed_at);
+
+const applyAuthenticatedUser = async (
+  get: () => AuthState,
+  set: (partial: Partial<AuthState>) => void,
+  user: User,
+  session: Session,
+  overrides?: Partial<Profile>,
+) => {
+  const profile = await get().ensureProfile(user);
+  const resolvedRole = profile?.role ?? overrides?.role ?? resolveRole(user.user_metadata?.role);
+
+  set({
+    session,
+    user,
+    profile: profile ?? buildFallbackProfile(user, overrides),
+  });
+
+  return resolvedRole;
+};
+
+const buildFallbackProfile = (user: User, overrides?: Partial<Profile>): Profile => {
+  const metadata = user.user_metadata ?? {};
+  return {
+    id: user.id,
+    email: user.email ?? '',
+    nama_lengkap:
+      overrides?.nama_lengkap ??
+      metadata.nama_lengkap ??
+      metadata.full_name ??
+      metadata.display_name ??
+      user.email?.split('@')[0] ??
+      'User Baru',
+    no_hp: (overrides?.no_hp ?? metadata.no_hp ?? metadata.phone ?? null) as string | null,
+    role: overrides?.role ?? resolveRole(metadata.role),
+    proyek_id: null,
+    avatar_url: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+};
 
 type AuthState = {
   user: User | null;
@@ -28,7 +77,6 @@ type AuthState = {
   }) => Promise<{
     error: string | null;
     role: Profile['role'] | null;
-    needsEmailVerification: boolean;
   }>;
   signOut: () => Promise<void>;
   loadSession: () => Promise<void>;
@@ -38,217 +86,238 @@ type AuthState = {
   setSessionState: (session: Session | null) => Promise<void>;
 };
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      profile: null,
-      session: null,
-      isLoading: false,
-      fetchProfile: async (userId) => {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single();
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  user: null,
+  profile: null,
+  session: null,
+  isLoading: false,
 
-        if (error) return null;
-        return data as Profile;
-      },
-      ensureProfile: async (user) => {
-        const existingProfile = await get().fetchProfile(user.id);
-        if (existingProfile) return existingProfile;
+  fetchProfile: async (userId) => {
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (error) return null;
+    return data as Profile;
+  },
 
-        const metadata = user.user_metadata ?? {};
-        const metadataName =
-          metadata.nama_lengkap ?? metadata.full_name ?? metadata.display_name ?? null;
-        const metadataPhone = metadata.no_hp ?? metadata.phone ?? null;
-        const fallbackRole: UserRole = resolveRole(metadata.role);
+  ensureProfile: async (user) => {
+    const existingProfile = await get().fetchProfile(user.id);
+    if (existingProfile) return existingProfile;
 
-        const payload = {
-          id: user.id,
-          email: user.email ?? '',
-          nama_lengkap: metadataName ?? user.email?.split('@')[0] ?? 'User Baru',
-          no_hp: metadataPhone,
-          role: fallbackRole,
-        };
+    const metadata = user.user_metadata ?? {};
+    const payload = {
+      id: user.id,
+      email: user.email ?? '',
+      nama_lengkap:
+        metadata.nama_lengkap ??
+        metadata.full_name ??
+        metadata.display_name ??
+        user.email?.split('@')[0] ??
+        'User Baru',
+      no_hp: metadata.no_hp ?? metadata.phone ?? null,
+      role: resolveRole(metadata.role),
+    };
 
-        const { data, error } = await supabase.from('profiles').upsert(payload).select('*').single();
-        if (error) return null;
-        return data as Profile;
-      },
-      setSessionState: async (session) => {
-        if (!session) {
-          set({ session: null, user: null, profile: null });
-          return;
-        }
+    const { data, error } = await supabase.from('profiles').upsert(payload).select('*').single();
+    if (error) return null;
+    return data as Profile;
+  },
 
-        const profile = await get().ensureProfile(session.user);
-        const metadata = session.user.user_metadata ?? {};
-        const roleFromMetadata = resolveRole(metadata.role);
-        const fallbackProfile: Profile = {
-          id: session.user.id,
-          email: session.user.email ?? '',
-          nama_lengkap:
-            metadata.nama_lengkap ??
-            metadata.full_name ??
-            metadata.display_name ??
-            session.user.email?.split('@')[0] ??
-            'User Baru',
-          no_hp: (metadata.no_hp ?? metadata.phone ?? null) as string | null,
-          role: roleFromMetadata,
-          proyek_id: null,
-          avatar_url: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        set({
-          session,
-          user: session.user,
-          profile: profile ?? fallbackProfile,
-        });
-      },
-      signIn: async (email, password) => {
-        set({ isLoading: true });
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  setSessionState: async (session) => {
+    if (!session) {
+      set({ session: null, user: null, profile: null });
+      return;
+    }
 
-        if (error || !data.session || !data.user) {
-          set({ isLoading: false });
-          return {
-            error: error?.message ?? 'Gagal login. Silakan coba lagi.',
-            role: null,
-          };
-        }
+    const profile = await get().ensureProfile(session.user);
+    set({
+      session,
+      user: session.user,
+      profile: profile ?? buildFallbackProfile(session.user),
+    });
+  },
 
-        const profile = await get().ensureProfile(data.user);
-        const metadata = data.user.user_metadata ?? {};
-        const roleFromMetadata = resolveRole(metadata.role);
-        const fallbackProfile: Profile = {
-          id: data.user.id,
-          email: data.user.email ?? '',
-          nama_lengkap:
-            metadata.nama_lengkap ??
-            metadata.full_name ??
-            metadata.display_name ??
-            data.user.email?.split('@')[0] ??
-            'User Baru',
-          no_hp: (metadata.no_hp ?? metadata.phone ?? null) as string | null,
-          role: roleFromMetadata,
-          proyek_id: null,
-          avatar_url: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        set({
-          session: data.session,
-          user: data.user,
-          profile: profile ?? fallbackProfile,
-          isLoading: false,
-        });
+  signIn: async (email, password) => {
+    set({ isLoading: true });
 
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      if (error || !data.session || !data.user) {
         return {
-          error: null,
-          role: profile?.role ?? roleFromMetadata,
+          error: mapAuthErrorMessage(error?.message ?? 'Gagal login. Silakan coba lagi.'),
+          role: null,
         };
-      },
-      signUp: async ({ email, password, nama_lengkap, role, no_hp }) => {
-        set({ isLoading: true });
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              nama_lengkap,
-              full_name: nama_lengkap,
-              display_name: nama_lengkap,
-              role,
-              no_hp: no_hp?.trim() ? no_hp : null,
-              phone: no_hp?.trim() ? no_hp : null,
-            },
-          },
-        });
+      }
 
-        if (error || !data.user) {
-          set({ isLoading: false });
-          return {
-            error: error?.message ?? 'Gagal registrasi. Silakan coba lagi.',
-            role: null,
-            needsEmailVerification: false,
-          };
-        }
+      const role = await applyAuthenticatedUser(get, set, data.user, data.session);
 
-        if (!data.session) {
-          set({ isLoading: false });
-          return {
-            error: null,
+      return { error: null, role };
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  signUp: async ({ email, password, nama_lengkap, role, no_hp }) => {
+    set({ isLoading: true });
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const trimmedName = nama_lengkap.trim();
+    const trimmedPhone = no_hp?.trim() || null;
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: {
+            nama_lengkap: trimmedName,
+            full_name: trimmedName,
+            display_name: trimmedName,
             role,
-            needsEmailVerification: true,
-          };
-        }
+            no_hp: trimmedPhone,
+            phone: trimmedPhone,
+          },
+        },
+      });
 
-        const ensuredProfile = await get().ensureProfile(data.user);
-        if (!ensuredProfile) {
-          set({ isLoading: false });
-          return {
-            error: 'Akun berhasil dibuat, tetapi profile gagal disiapkan. Coba login ulang.',
-            role: null,
-            needsEmailVerification: false,
-          };
+      if (error) {
+        if (isAlreadyRegisteredError(error.message)) {
+          return { error: 'Email ini sudah terdaftar. Silakan login.', role: null };
         }
+        return { error: mapSignUpError(error.message), role: null };
+      }
 
-        set({
-          session: data.session,
-          user: data.user,
-          profile: ensuredProfile,
-          isLoading: false,
+      const profileOverrides = {
+        nama_lengkap: trimmedName,
+        no_hp: trimmedPhone,
+        role,
+        email: normalizedEmail,
+      };
+
+      // Supabase mengembalikan identities kosong jika email sudah pernah terdaftar.
+      if (data.user && data.user.identities?.length === 0) {
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
         });
 
-        return {
-          error: null,
-          role: ensuredProfile.role,
-          needsEmailVerification: false,
-        };
-      },
-      signOut: async () => {
-        set({ isLoading: true });
-        await supabase.auth.signOut();
-        set({ user: null, profile: null, session: null, isLoading: false });
-      },
-      loadSession: async () => {
-        set({ isLoading: true });
-        const { data } = await supabase.auth.getSession();
-        await get().setSessionState(data.session);
-        set({ isLoading: false });
-      },
-      updateProfile: async (payload) => {
-        const currentUser = get().user;
-        if (!currentUser) {
-          return { error: 'User belum login.' };
+        if (loginError) {
+          return { error: mapSignUpError(loginError.message), role: null };
         }
 
-        const { data, error } = await supabase
-          .from('profiles')
-          .update(payload)
-          .eq('id', currentUser.id)
-          .select('*')
-          .single();
-
-        if (error) {
-          return { error: error.message };
+        if (!loginData.session || !loginData.user) {
+          return { error: UNCONFIRMED_EMAIL_HELP, role: null };
         }
 
-        set({ profile: data as Profile });
-        return { error: null };
-      },
-    }),
-    {
-      name: 'auth-store',
-      storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
-        user: state.user,
-        profile: state.profile,
-        session: state.session,
-      }),
-    },
-  ),
-);
+        const resolvedRole = await applyAuthenticatedUser(
+          get,
+          set,
+          loginData.user,
+          loginData.session,
+          profileOverrides,
+        );
+        return { error: null, role: resolvedRole };
+      }
+
+      if (data.session && data.user) {
+        const resolvedRole = await applyAuthenticatedUser(get, set, data.user, data.session, profileOverrides);
+        return { error: null, role: resolvedRole };
+      }
+
+      if (data.user && !isUserEmailConfirmed(data.user)) {
+        return { error: UNCONFIRMED_EMAIL_HELP, role: null };
+      }
+
+      if (data.user) {
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
+
+        if (loginError) {
+          return { error: mapSignUpError(loginError.message), role: null };
+        }
+
+        if (!loginData.session || !loginData.user) {
+          return { error: 'Gagal masuk setelah registrasi. Silakan login manual.', role: null };
+        }
+
+        const resolvedRole = await applyAuthenticatedUser(
+          get,
+          set,
+          loginData.user,
+          loginData.session,
+          profileOverrides,
+        );
+        return { error: null, role: resolvedRole };
+      }
+
+      return { error: 'Gagal membuat akun. Coba dengan email lain.', role: null };
+    } catch {
+      return { error: 'Terjadi kesalahan. Coba lagi.', role: null };
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  signOut: async () => {
+    set({ isLoading: true });
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      if (!isInvalidRefreshTokenError(error)) {
+        throw error;
+      }
+      await clearLocalAuthSession();
+    }
+    set({ user: null, profile: null, session: null, isLoading: false });
+  },
+
+  loadSession: async () => {
+    set({ isLoading: true });
+    await AsyncStorage.removeItem('auth-store').catch(() => undefined);
+
+    try {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error && isInvalidRefreshTokenError(error)) {
+        await clearLocalAuthSession();
+        set({ session: null, user: null, profile: null });
+        return;
+      }
+
+      await get().setSessionState(data.session);
+    } catch (error) {
+      if (isInvalidRefreshTokenError(error)) {
+        await clearLocalAuthSession();
+      }
+      set({ session: null, user: null, profile: null });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  updateProfile: async (payload) => {
+    const currentUser = get().user;
+    if (!currentUser) {
+      return { error: 'User belum login.' };
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', currentUser.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      return { error: error.message };
+    }
+
+    set({ profile: data as Profile });
+    return { error: null };
+  },
+}));
