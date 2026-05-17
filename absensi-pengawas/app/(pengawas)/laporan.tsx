@@ -1,9 +1,12 @@
-import { Text, View } from 'react-native';
+import { Redirect } from 'expo-router';
+import { usePengawasStore } from '@/lib/store/pengawasStore';
 
 export default function PengawasLaporanScreen() {
-  return (
-    <View className="flex-1 items-center justify-center bg-slate-50">
-      <Text className="text-base font-medium">Pengawas Laporan</Text>
-    </View>
-  );
+  const { absensiHariIni, laporanHariIni } = usePengawasStore();
+
+  if (absensiHariIni || laporanHariIni) {
+    return <Redirect href="/(pengawas)/lengkapi-laporan" />;
+  }
+
+  return <Redirect href="/(pengawas)/beranda" />;
 }

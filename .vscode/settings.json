@@ -1,7 +1,7 @@
 {
-  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.tsdk": "absensi-pengawas/node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
-  "tailwindCSS.experimental.configFile": "tailwind.config.js",
+  "tailwindCSS.experimental.configFile": "absensi-pengawas/tailwind.config.js",
   "tailwindCSS.classAttributes": [
     "class",
     "className",
@@ -18,10 +18,5 @@
   "tailwindCSS.includeLanguages": {
     "typescript": "javascript",
     "typescriptreact": "javascript"
-  },
-  "editor.codeActionsOnSave": {
-    "source.fixAll": "explicit",
-    "source.organizeImports": "explicit",
-    "source.sortMembers": "explicit"
   }
 }

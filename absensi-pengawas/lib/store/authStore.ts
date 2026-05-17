@@ -11,12 +11,25 @@ import {
 import { clearLocalAuthSession } from '@/lib/auth/session';
 import supabase from '@/lib/supabase';
 import { Profile, UserRole } from '@/lib/types';
+import type { Tables } from '@/types/supabase';
 
 const resolveRole = (candidate: unknown): UserRole =>
   candidate === 'admin' || candidate === 'logistik' || candidate === 'pengawas'
     ? candidate
     : 'pengawas';
 
+<<<<<<< HEAD
+const mapDbProfile = (row: Tables<'profiles'>, email = ''): Profile => ({
+  id: row.id,
+  email,
+  nama_lengkap: row.full_name,
+  role: resolveRole(row.role),
+  proyek_id: null,
+  avatar_url: null,
+  created_at: row.created_at ?? new Date().toISOString(),
+  updated_at: row.updated_at ?? new Date().toISOString(),
+});
+=======
 const isUserEmailConfirmed = (user: User) => Boolean(user.email_confirmed_at);
 
 const applyAuthenticatedUser = async (
@@ -58,6 +71,7 @@ const buildFallbackProfile = (user: User, overrides?: Partial<Profile>): Profile
     updated_at: new Date().toISOString(),
   };
 };
+>>>>>>> dc495cd037560931476086c71e2e4374c0285ecb
 
 type AuthState = {
   user: User | null;
@@ -92,16 +106,42 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   session: null,
   isLoading: false,
 
+<<<<<<< HEAD
+        if (error || !data) return null;
+        return mapDbProfile(data, get().user?.email ?? '');
+      },
+      ensureProfile: async (user) => {
+        const existingProfile = await get().fetchProfile(user.id);
+        if (existingProfile) return existingProfile;
+=======
   fetchProfile: async (userId) => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (error) return null;
     return data as Profile;
   },
+>>>>>>> dc495cd037560931476086c71e2e4374c0285ecb
 
   ensureProfile: async (user) => {
     const existingProfile = await get().fetchProfile(user.id);
     if (existingProfile) return existingProfile;
 
+<<<<<<< HEAD
+        const payload = {
+          id: user.id,
+          full_name: metadataName ?? user.email?.split('@')[0] ?? 'User Baru',
+          role: fallbackRole,
+        };
+
+        const { data, error } = await supabase.from('profiles').upsert(payload).select('*').single();
+        if (error || !data) return null;
+        return mapDbProfile(data, user.email ?? '');
+      },
+      setSessionState: async (session) => {
+        if (!session) {
+          set({ session: null, user: null, profile: null });
+          return;
+        }
+=======
     const metadata = user.user_metadata ?? {};
     const payload = {
       id: user.id,
@@ -120,6 +160,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     if (error) return null;
     return data as Profile;
   },
+>>>>>>> dc495cd037560931476086c71e2e4374c0285ecb
 
   setSessionState: async (session) => {
     if (!session) {
@@ -208,6 +249,38 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
           return { error: mapSignUpError(loginError.message), role: null };
         }
 
+<<<<<<< HEAD
+        const dbPayload: Partial<Tables<'profiles'>> = {};
+        if (payload.nama_lengkap) dbPayload.full_name = payload.nama_lengkap;
+        if (payload.role) dbPayload.role = payload.role;
+
+        const { data, error } = await supabase
+          .from('profiles')
+          .update(dbPayload)
+          .eq('id', currentUser.id)
+          .select('*')
+          .single();
+
+        if (error) {
+          return { error: error.message };
+        }
+
+        set({ profile: mapDbProfile(data, currentUser.email ?? '') });
+        return { error: null };
+      },
+    }),
+    {
+      name: 'auth-store',
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        user: state.user,
+        profile: state.profile,
+        session: state.session,
+      }),
+    },
+  ),
+);
+=======
         if (!loginData.session || !loginData.user) {
           return { error: UNCONFIRMED_EMAIL_HELP, role: null };
         }
@@ -321,3 +394,4 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     return { error: null };
   },
 }));
+>>>>>>> dc495cd037560931476086c71e2e4374c0285ecb
